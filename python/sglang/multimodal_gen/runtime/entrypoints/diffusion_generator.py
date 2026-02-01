@@ -25,6 +25,7 @@ from sglang.multimodal_gen.runtime.entrypoints.openai.utils import (
     MergeLoraWeightsReq,
     SetLoraReq,
     UnmergeLoraWeightsReq,
+    UpdateWeightFromDiskReq,
     format_lora_message,
 )
 from sglang.multimodal_gen.runtime.entrypoints.utils import (
@@ -465,6 +466,59 @@ class DiffGenerator:
                 **kwargs,
             )
         )
+
+    def update_weights_from_disk(
+        self,
+        model_path: str,
+        load_format: str | None = None,
+        flush_cache: bool = True,
+    ) -> dict[str, Any]:
+        """
+        Update the model weights from disk inplace without re-launching the engine.
+
+        This method allows updating the model weights from disk without restarting
+        the engine. It can be used to load a different model or update weights with
+        new training, which is essential for RL workflows and iterative fine-tuning.
+
+        Args:
+            model_path: Path to the new model weights (local path or HuggingFace model ID).
+            load_format: Optional format specification for loading weights.
+            flush_cache: Whether to flush the cache after updating weights.
+
+        Returns:
+            A dict with keys 'success' (bool) and 'message' (str).
+
+        Raises:
+            RuntimeError: If the weight update fails.
+
+        Example:
+            >>> generator = DiffGenerator.from_server_args(server_args)
+            >>> # Update to a new checkpoint
+            >>> result = generator.update_weights_from_disk("/path/to/new/checkpoint")
+            >>> if result["success"]:
+            ...     print("Weights updated successfully")
+        """
+        req = UpdateWeightFromDiskReq(
+            model_path=model_path,
+            load_format=load_format,
+            flush_cache=flush_cache,
+        )
+
+        logger.info(f"Updating weights from disk: {model_path}")
+
+        output: OutputBatch = self._send_to_scheduler_and_wait_for_response([req])
+
+        if output.error is not None:
+            error_msg = f"Failed to update weights from disk: {output.error}"
+            logger.error(error_msg)
+            raise RuntimeError(error_msg)
+
+        result = output.output
+        if result is None:
+            result = {"success": True, "message": f"Weights updated to {model_path}"}
+
+        logger.info(f"Successfully updated weights from disk: {model_path}")
+        return result
 
     def shutdown(self):
         """

@@ -293,6 +293,71 @@ class GPUWorker:
         status = self.pipeline.get_lora_status()
         return OutputBatch(output=status)
 
+    def update_weights_from_disk(
+        self,
+        model_path: str,
+        load_format: str | None = None,
+    ) -> tuple[bool, str]:
+        """
+        Update the model weights from disk inplace without re-launching the engine.
+
+        This method allows updating the model weights from disk without restarting
+        the engine. It rebuilds the pipeline with the new model weights.
+
+        Args:
+            model_path: Path to the new model weights.
+            load_format: Optional format specification for loading weights.
+
+        Returns:
+            A tuple of (success: bool, message: str).
+        """
+        try:
+            logger.info(f"Updating weights from disk: {model_path}")
+
+            # Update the model path in server_args
+            old_model_path = self.server_args.model_path
+            self.server_args.model_path = model_path
+
+            # Clear CUDA cache before rebuilding pipeline
+            torch.cuda.empty_cache()
+
+            # Rebuild the pipeline with new weights
+            old_pipeline = self.pipeline
+            self.pipeline = build_pipeline(self.server_args)
+
+            # Apply layerwise offload if configured
+            if self.server_args.dit_layerwise_offload:
+                for dit in filter(
+                    None,
+                    [
+                        self.pipeline.get_module("transformer"),
+                        self.pipeline.get_module("transformer_2"),
+                        self.pipeline.get_module("video_dit"),
+                        self.pipeline.get_module("video_dit_2"),
+                        self.pipeline.get_module("audio_dit"),
+                    ],
+                ):
+                    if isinstance(dit, OffloadableDiTMixin):
+                        dit.configure_layerwise_offload(self.server_args)
+                    else:
+                        logger.info(
+                            f"Module {type(dit).__name__} does not support layerwise offload. Skipping."
+                        )
+
+            # Clean up old pipeline
+            del old_pipeline
+            torch.cuda.empty_cache()
+
+            logger.info(
+                f"Successfully updated weights from {old_model_path} to {model_path}"
+            )
+            return True, f"Successfully updated weights to {model_path}"
+
+        except Exception as e:
+            error_msg = f"Failed to update weights from disk: {e}"
+            logger.error(error_msg, exc_info=True)
+            return False, error_msg
+
 
 OOM_MSG = f"""
 OOM detected. Possible solutions:

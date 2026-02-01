@@ -48,6 +48,15 @@ class ListLorasReq:
     pass
 
 
+@dataclasses.dataclass
+class UpdateWeightFromDiskReq:
+    """Request to update model weights from disk."""
+
+    model_path: str
+    load_format: Optional[str] = None
+    flush_cache: bool = True
+
+
 def format_lora_message(
     lora_nickname: Union[str, List[str]],
     target: Union[str, List[str]],

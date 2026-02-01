@@ -16,6 +16,7 @@ from sglang.multimodal_gen.runtime.entrypoints.openai.utils import (
     MergeLoraWeightsReq,
     SetLoraReq,
     UnmergeLoraWeightsReq,
+    UpdateWeightFromDiskReq,
     _parse_size,
     save_image_to_path,
 )
@@ -87,6 +88,7 @@ class Scheduler:
             Req: self._handle_generation,
             List[Req]: self._handle_generation,
             ListLorasReq: self._handle_list_loras,
+            UpdateWeightFromDiskReq: self._handle_update_weights_from_disk,
         }
 
         # FIFO, new reqs are appended
@@ -122,6 +124,18 @@ class Scheduler:
 
     def _handle_list_loras(self, _reqs: List[Any]) -> OutputBatch:
         return self.worker.list_loras()
+
+    def _handle_update_weights_from_disk(self, reqs: List[Any]) -> OutputBatch:
+        """Handle update_weights_from_disk request."""
+        req = reqs[0]
+        success, message = self.worker.update_weights_from_disk(
+            model_path=req.model_path,
+            load_format=req.load_format,
+        )
+        return OutputBatch(
+            output={"success": success, "message": message} if success else None,
+            error=message if not success else None,
+        )
 
     def _handle_generation(self, reqs: List[Req]):
         warmup_reqs = [req for req in reqs if req.is_warmup]
